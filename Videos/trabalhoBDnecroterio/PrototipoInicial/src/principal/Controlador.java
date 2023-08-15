@@ -43,15 +43,14 @@ public class Controlador extends JFrame {
     private JPanel homePanel;
     private JPanel optionsPanel;
     private CardLayout cardLayout;
-    private static String nomeUsuarioLogado = "";
     private Connection conn;
 
     public Controlador(Connection conn) {
 
         this.conn = conn;
 
-        setTitle("Gerenciamento Necroterio - User: " + nomeUsuarioLogado);
-        setSize(600, 400);
+        setTitle("Gerenciamento Necroterio");
+        setSize(700, 500);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
@@ -68,7 +67,8 @@ public class Controlador extends JFrame {
 
         if (realizarLogin()) {
             showHomePage(); // Exibe a home page
-            setTitle("Gerenciamento Necroterio - Usuário: " + nomeUsuarioLogado);
+            setTitle("Gerenciamento Necroterio - User: "
+                    + SessionManager.getInstance().getLoggedFuncionario().getNome());
             setVisible(true);
 
         } else {
@@ -96,7 +96,7 @@ public class Controlador extends JFrame {
         formPanel.add(loginLabel);
         formPanel.add(loginField);
 
-        JLabel passwordLabel = new JLabel("Password:");
+        JLabel passwordLabel = new JLabel("Senha:");
         JPasswordField passwordField = new JPasswordField();
         formPanel.add(passwordLabel);
         formPanel.add(passwordField);
@@ -208,8 +208,12 @@ public class Controlador extends JFrame {
         JButton adminButton = new JButton("Área do Administrador");
         adminButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                if (autenticarAdmin()) {
+                if (SessionManager.getInstance().getLoggedFuncionario().getCargo().equals("Administrador")) {
                     abrirOpcoesAdmin();
+                } else {
+                    if (autenticarAdmin()) {
+                        abrirOpcoesAdmin();
+                    }
                 }
             }
         });
@@ -278,12 +282,22 @@ public class Controlador extends JFrame {
         });
         centerPanel.add(situacaoButton);
 
+        // Novo botão Listar cadáveres por funcionário
+        JButton listarCadFuncButton = new JButton("Registros por funcionário");
+        listarCadFuncButton.setPreferredSize(new Dimension(50, 10));
+        listarCadFuncButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                listarCadaveresPorFuncionario();
+            }
+        });
+        centerPanel.add(listarCadFuncButton);
+
         // Novo botão Encerrar Sistema
         JButton encerrarButton = new JButton("Encerrar Sessão");
         encerrarButton.setPreferredSize(new Dimension(50, 10));
         encerrarButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
-                sairDoSistema();
+                realizarLogin();
             }
         });
         centerPanel.add(encerrarButton);
@@ -292,8 +306,77 @@ public class Controlador extends JFrame {
         homePanel.add(centerPanel, BorderLayout.CENTER);
     }
 
+    private void listarCadaveresPorFuncionario() {
+
+        String searchQuery = JOptionPane.showInputDialog(this, "Digite o CPF do funcionário para busca:");
+
+        if (searchQuery == null) {
+            // User canceled the input or closed the dialog
+            return;
+        }
+
+        searchQuery = searchQuery.replaceAll("[^0-9]", ""); // Remove non-numeric characters
+        searchQuery = formatCPF(searchQuery);
+        // Create the table model
+
+        PreparedStatement st = null;
+        ResultSet rs = null;
+
+        try {
+            st = conn.prepareStatement(
+                    "SELECT c.identificacao, c.nome_cadaver, c.situacao, f.cpf, f.nome, f.cargo FROM cadaver c INNER JOIN funcionario f ON c.cpf_funcionario = f.cpf WHERE cpf_funcionario = ?");
+            st.setString(1, searchQuery);
+            rs = st.executeQuery();
+            JPanel panel = new JPanel(new BorderLayout());
+
+            // Crie a tabela e o modelo
+            DefaultTableModel tableModel = new DefaultTableModel();
+            tableModel.setColumnIdentifiers(
+                    new Object[] { "CPF", "Nome do Cádaver", "Situação" });
+            // Crie a JTable
+
+            while (rs.next()) {
+
+                Object[] rowData = {
+                        rs.getString("identificacao"),
+                        rs.getString("nome_cadaver"),
+                        rs.getString("situacao"),
+                };
+                tableModel.addRow(rowData);
+                String nome_func = rs.getString("nome");
+                String cargo = rs.getString("cargo");
+                // Crie a JTable
+                JTable table = new JTable(tableModel);
+                JScrollPane scrollPane = new JScrollPane(table);
+                JLabel infoLabel = new JLabel("Funcionário: " + nome_func + " | Cargo: " + cargo);
+                panel.add(infoLabel, BorderLayout.NORTH);
+                // Adicione o scrollPane com a tabela ao JPanel
+                panel.add(scrollPane, BorderLayout.CENTER);
+
+            }
+
+            // Crie e exiba o diálogo com o JPanel
+            JDialog dialog = new JDialog(this, "Listagem de cadáveres registrados por funcionário", true);
+            dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+            dialog.getContentPane().add(panel); // Adicione o JPanel ao diálogo
+            dialog.pack();
+
+            // Defina o tamanho do diálogo
+            dialog.setSize(900, 500);
+
+            dialog.setLocationRelativeTo(this);
+            dialog.setVisible(true);
+        } catch (
+
+        SQLException e) {
+            throw new DbException(e.getMessage());
+        } finally {
+            DB.closeStatement(st);
+            DB.closeResultSet(rs);
+        }
+    }
+
     private void listarFuncionario() {
-        // Read the products from the file
 
         // Create the table model
         DefaultTableModel tableModel = new DefaultTableModel();
@@ -341,10 +424,6 @@ public class Controlador extends JFrame {
         }
     }
 
-    /*
-     * Metodo executado quando clicado no botao LISTAR REGISTROS
-     * abre uma nova tela e exibe todos os registros do arquivo
-     */
     private void mostrarCadaver() {
 
         // Create the table model
@@ -401,10 +480,6 @@ public class Controlador extends JFrame {
         cardLayout.show(mainPanel, "home");
     }
 
-    /*
-     * Metodo executado quando clicado no botao ADICIONAR REGISTROS
-     * abre varias caixas de dialogo e adiciona um novo registro no arquivo
-     */
     private void adicionarCadaver() {
         JTextField cpfField = new JTextField(15);
         JTextField nomeField = new JTextField(15);
@@ -536,9 +611,10 @@ public class Controlador extends JFrame {
                         int rowsAffected = st.executeUpdate();
 
                         if (rowsAffected > 0) {
-                            System.out.println("Contato inserido\n");
+                            JOptionPane.showMessageDialog(this, "Registro inserido com sucesso!");
                         } else {
-                            throw new DbException("Erro ao inserir!");
+                            JOptionPane.showMessageDialog(this, "Erro ao inserir!");
+
                         }
                     } catch (SQLException e) {
                         throw new DbException(e.getMessage());
@@ -678,23 +754,6 @@ public class Controlador extends JFrame {
         return true;
     }
 
-    /* Metodo auxiliar para escrever dados no arquivo .csv */
-
-    private void EmDesenvolvimento() {
-        JOptionPane.showMessageDialog(this, "Em Desenvolvimento...");
-    }
-
-    private void sairDoSistema() {
-        int confirmation = JOptionPane.showConfirmDialog(this, "Deseja sair do sistema?", "Confirmação",
-                JOptionPane.YES_NO_OPTION);
-
-        if (confirmation == JOptionPane.YES_OPTION) {
-            // Implement here the code to exit the system
-            // For example, you can use System.exit(0) to terminate the application
-            System.exit(0);
-        }
-    }
-
     public void buscarRegistros() {
         // Show the option dialog with the buttons
         int option = JOptionPane.showOptionDialog(
@@ -783,12 +842,14 @@ public class Controlador extends JFrame {
 
     public void buscarRegistrosPorCPF() {
 
-        String searchQuery = JOptionPane.showInputDialog(this, "Digite o Nome para buscar:");
+        String searchQuery = JOptionPane.showInputDialog(this, "Digite o CPF para buscar:");
 
         if (searchQuery == null) {
             // User canceled the input or closed the dialog
             return;
         }
+        searchQuery = searchQuery.replaceAll("[^0-9]", ""); // Remove non-numeric characters
+        searchQuery = formatCPF(searchQuery);
         PreparedStatement st = null;
         ResultSet rs = null;
         DefaultTableModel tableModel = new DefaultTableModel(
@@ -900,6 +961,7 @@ public class Controlador extends JFrame {
                     obj.setCpf(rs.getString("identificacao"));
                     obj.setNome(rs.getString("nome_cadaver"));
                     obj.setSituacao(rs.getString("situacao"));
+                    obj.setIdFuncionario(rs.getString("cpf_funcionario"));
                     int confirmation = JOptionPane.showConfirmDialog(this,
                             "Deseja apagar o registro com o CPF: " + searchQuery + "?" +
                                     "\nNome: " + obj.getNome() + "\nSituação: " + obj.getSituacao()
@@ -1021,6 +1083,10 @@ public class Controlador extends JFrame {
         listarAdminButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         listarAdminButton.addActionListener(e -> listarFuncionario());
 
+        JButton editarAdminButton = new JButton("Editar funcionário");
+        editarAdminButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+        editarAdminButton.addActionListener(e -> editarFuncionarioPorCPF());
+
         JButton removerAdminButton = new JButton("Remover funcionário");
         removerAdminButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         removerAdminButton.addActionListener(e -> apagarFuncionarioPorCPF());
@@ -1029,6 +1095,8 @@ public class Controlador extends JFrame {
         optionsPanel.add(adicionarAdminButton);
         optionsPanel.add(Box.createVerticalStrut(20));
         optionsPanel.add(listarAdminButton);
+        optionsPanel.add(Box.createVerticalStrut(20));
+        optionsPanel.add(editarAdminButton);
         optionsPanel.add(Box.createVerticalStrut(20));
         optionsPanel.add(removerAdminButton);
 
@@ -1045,6 +1113,107 @@ public class Controlador extends JFrame {
                 null,
                 new Object[] {},
                 null);
+    }
+
+    private void editarFuncionarioPorCPF() {
+        JTextField cpfField = new JTextField(15);
+
+        cpfField.addFocusListener(new FocusListener() {
+
+            @Override
+            public void focusGained(FocusEvent e) {
+                if (cpfField.getText().equals("Apenas Números")) {
+                    cpfField.setText("");
+                    cpfField.setForeground(Color.BLACK);
+                }
+            }
+
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (cpfField.getText().isEmpty()) {
+                    cpfField.setText("Apenas Números");
+                    cpfField.setForeground(Color.GRAY);
+                }
+            }
+        });
+        cpfField.setText("Apenas Números");
+        cpfField.setForeground(Color.GRAY);
+
+        JPanel panel = new JPanel(new GridLayout(0, 1));
+        panel.add(new JLabel("Digite o CPF para alterar dados do funcionário:"));
+        panel.add(cpfField);
+
+        int result = JOptionPane.showConfirmDialog(null, panel, "Digite o CPF",
+                JOptionPane.OK_CANCEL_OPTION);
+
+        String searchQuery = cpfField.getText();
+
+        if (searchQuery == null || searchQuery.equals("Apenas Números")) {
+            return;
+        }
+        if (result == JOptionPane.OK_OPTION) {
+            searchQuery = searchQuery.replaceAll("[^0-9]", "");
+            searchQuery = formatCPF(searchQuery);
+
+            PreparedStatement st = null;
+            ResultSet rs = null;
+            // Aqui retorna todos os dados do cpf que buscou
+            try {
+                st = conn.prepareStatement(
+                        "SELECT * FROM funcionario WHERE cpf = ?");
+                st.setString(1, searchQuery);
+
+                rs = st.executeQuery();
+                if (rs.next()) {
+                    String updatedName = JOptionPane.showInputDialog(this, "Digite o novo nome:",
+                            rs.getString("nome"));
+                    String updatedLogin = JOptionPane.showInputDialog(this,
+                            "Digite o novo login:",
+                            rs.getString("login_acesso"));
+                    String updatedPassword = JOptionPane.showInputDialog(this,
+                            "Digite a nova senha:",
+                            rs.getString("senha"));
+                    String updatedCargo = JOptionPane.showInputDialog(this,
+                            "Digite o novo cargo:",
+                            rs.getString("cargo"));
+                    if (updatedName != null && !updatedName.isEmpty() && updatedLogin != null
+                            && !updatedLogin.isEmpty() && updatedPassword != null &&
+                            !updatedPassword.isEmpty()
+                            && updatedCargo != null && !updatedCargo.isEmpty()) {
+                        // ---------- CONSULTA BANCO DE DADOS ---------------------
+                        // Aqui atualiza todos os dados do cpf inserido
+                        try {
+                            st = conn.prepareStatement(
+
+                                    "UPDATE funcionario SET nome= ?, login_acesso = ?, senha = ?, cargo = ?  WHERE cpf = ?",
+                                    Statement.RETURN_GENERATED_KEYS);
+
+                            st.setString(1, updatedName);
+                            st.setString(2, updatedLogin);
+                            st.setString(3, updatedPassword);
+                            st.setString(4, updatedCargo);
+                            st.setString(5, searchQuery);
+
+                            int rowsAffected = st.executeUpdate();
+
+                            if (rowsAffected > 0) {
+                                JOptionPane.showMessageDialog(this, "Funcionário atualizado!");
+                            } else {
+                                JOptionPane.showMessageDialog(this, "Erro ao inserir!");
+                            }
+                        } catch (SQLException e) {
+                            throw new DbException(e.getMessage());
+                        } finally {
+                            DB.closeStatement(st);
+                        }
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(null, "Os registros não podem ser vazios.");
+                }
+            } catch (SQLException e) {
+                JOptionPane.showMessageDialog(null, "CPF não encontrado.");
+            }
+        }
     }
 
     // Adicionando um funcionario na aba administração
